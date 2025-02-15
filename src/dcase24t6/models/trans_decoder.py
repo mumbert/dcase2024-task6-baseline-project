@@ -20,6 +20,7 @@ from dcase24t6.augmentations.mixup import sample_lambda
 from dcase24t6.datamodules.hdf import Stage
 from dcase24t6.models.aac import AACModel, Batch, TestBatch, TrainBatch, ValBatch
 from dcase24t6.nn.decoders.aac_tfmer import AACTransformerDecoder
+from dcase24t6.nn.decoders.rnn_decoder import RNNDecoder
 from dcase24t6.nn.decoding.beam import generate
 from dcase24t6.nn.decoding.common import get_forbid_rep_mask_content_words
 from dcase24t6.nn.decoding.forcing import teacher_forcing
@@ -40,6 +41,7 @@ class TransDecoderModel(AACModel):
     def __init__(
         self,
         tokenizer: AACTokenizer,
+        decoder_type: str = "aac",
         # Model architecture args
         in_features: int = 768,
         d_model: int = 256,
@@ -90,11 +92,28 @@ class TransDecoderModel(AACModel):
             Transpose(1, 2),
             nn.Dropout(p=0.5),
         )
+
+        ## Original code
         decoder = AACTransformerDecoder(
             vocab_size=self.tokenizer.get_vocab_size(),
             pad_id=self.tokenizer.pad_token_id,
             d_model=self.hparams["d_model"],
         )
+        ## Alternative code
+        if self.decoder_type == "aac":
+            decoder = AACTransformerDecoder(
+                vocab_size=self.tokenizer.get_vocab_size(),
+                pad_id=self.tokenizer.pad_token_id,
+                d_model=self.hparams["d_model"],
+            )
+        elif self.decoder_type == "rnn":
+            decoder = RNNDecoder(
+                vocab_size=self.tokenizer.get_vocab_size(),
+                d_model=self.hparams["d_model"],
+                num_layers=6,
+            )
+        else:
+            raise ValueError(f"Unknown decoder type: {self.decoder_type}")        
 
         forbid_rep_mask = get_forbid_rep_mask_content_words(
             vocab_size=self.tokenizer.get_vocab_size(),

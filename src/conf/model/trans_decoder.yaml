@@ -2,5 +2,6 @@
 
 _target_: "dcase24t6.models.trans_decoder.TransDecoderModel"
 
+decoder_type: "aac"  # Options: "aac", "custom", "rnn", "gpt2", "bart"
 sched_num_steps: ${trainer.max_epochs}
 verbose: ${verbose}

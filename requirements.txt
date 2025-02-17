@@ -20,3 +20,4 @@ tokenizers==0.15.2
 torch==2.2.1
 torchlibrosa==0.1.0
 torchoutil[extras]~=0.3.0
+numpy==1.26.4

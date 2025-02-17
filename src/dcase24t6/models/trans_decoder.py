@@ -66,6 +66,7 @@ class TransDecoderModel(AACModel):
         self.projection: nn.Module = nn.Identity()
         self.decoder: AACTransformerDecoder = None  # type: ignore
         self.save_hyperparameters(ignore=["tokenizer"])
+        self.decoder_type = decoder_type
 
     def is_built(self) -> bool:
         return self.decoder is not None
@@ -93,13 +94,13 @@ class TransDecoderModel(AACModel):
             nn.Dropout(p=0.5),
         )
 
-        ## Original code
-        decoder = AACTransformerDecoder(
-            vocab_size=self.tokenizer.get_vocab_size(),
-            pad_id=self.tokenizer.pad_token_id,
-            d_model=self.hparams["d_model"],
-        )
-        ## Alternative code
+        # Original code
+        # decoder = AACTransformerDecoder(
+        #     vocab_size=self.tokenizer.get_vocab_size(),
+        #     pad_id=self.tokenizer.pad_token_id,
+        #     d_model=self.hparams["d_model"],
+        # )
+        # Alternative code
         if self.decoder_type == "aac":
             decoder = AACTransformerDecoder(
                 vocab_size=self.tokenizer.get_vocab_size(),
@@ -113,7 +114,7 @@ class TransDecoderModel(AACModel):
                 num_layers=6,
             )
         else:
-            raise ValueError(f"Unknown decoder type: {self.decoder_type}")        
+            raise ValueError(f"Unknown decoder type: {self.decoder_type}")
 
         forbid_rep_mask = get_forbid_rep_mask_content_words(
             vocab_size=self.tokenizer.get_vocab_size(),

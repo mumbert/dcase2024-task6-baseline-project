@@ -100,21 +100,26 @@ class TransDecoderModel(AACModel):
         #     pad_id=self.tokenizer.pad_token_id,
         #     d_model=self.hparams["d_model"],
         # )
+        decoder = RNNDecoder(
+            vocab_size=self.tokenizer.get_vocab_size(),
+            d_model=self.hparams["d_model"],
+            num_layers=6,
+        )
         # Alternative code
-        if self.decoder_type == "aac":
-            decoder = AACTransformerDecoder(
-                vocab_size=self.tokenizer.get_vocab_size(),
-                pad_id=self.tokenizer.pad_token_id,
-                d_model=self.hparams["d_model"],
-            )
-        elif self.decoder_type == "rnn":
-            decoder = RNNDecoder(
-                vocab_size=self.tokenizer.get_vocab_size(),
-                d_model=self.hparams["d_model"],
-                num_layers=6,
-            )
-        else:
-            raise ValueError(f"Unknown decoder type: {self.decoder_type}")
+        # if self.decoder_type == "aac":
+        #     decoder = AACTransformerDecoder(
+        #         vocab_size=self.tokenizer.get_vocab_size(),
+        #         pad_id=self.tokenizer.pad_token_id,
+        #         d_model=self.hparams["d_model"],
+        #     )
+        # elif self.decoder_type == "rnn":
+        #     decoder = RNNDecoder(
+        #         vocab_size=self.tokenizer.get_vocab_size(),
+        #         d_model=self.hparams["d_model"],
+        #         num_layers=6,
+        #     )
+        # else:
+        #     raise ValueError(f"Unknown decoder type: {self.decoder_type}")
 
         forbid_rep_mask = get_forbid_rep_mask_content_words(
             vocab_size=self.tokenizer.get_vocab_size(),
@@ -161,6 +166,9 @@ class TransDecoderModel(AACModel):
         )
         captions_in = self.input_emb_layer(captions_in)
         captions_in = captions_in * lbd + captions_in[indexes] * (1.0 - lbd)
+
+        # new
+        captions_in = captions_in.long()
 
         encoded = self.encode_audio(audio, audio_shape)
         decoded = self.decode_audio(
@@ -290,6 +298,8 @@ class TransDecoderModel(AACModel):
         return self.val_criterion(logits, target)
 
     def input_emb_layer(self, ids: Tensor) -> Tensor:
+        # New: Ensure ids is of type torch.LongTensor
+        ids = ids.long()
         return self.decoder.emb_layer(ids)
 
     def mix_audio(

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# ./logs/train-2025.02.25-23.44.55-baseline/
+
 from typing import Any, Optional, TypedDict
 
 import torch
@@ -20,7 +22,8 @@ from dcase24t6.augmentations.mixup import sample_lambda
 from dcase24t6.datamodules.hdf import Stage
 from dcase24t6.models.aac import AACModel, Batch, TestBatch, TrainBatch, ValBatch
 from dcase24t6.nn.decoders.aac_tfmer import AACTransformerDecoder
-from dcase24t6.nn.decoders.rnn_decoder import RNNDecoder
+
+# from dcase24t6.nn.decoders.rnn_decoder import RNNDecoder
 from dcase24t6.nn.decoding.beam import generate
 from dcase24t6.nn.decoding.common import get_forbid_rep_mask_content_words
 from dcase24t6.nn.decoding.forcing import teacher_forcing
@@ -41,7 +44,7 @@ class TransDecoderModel(AACModel):
     def __init__(
         self,
         tokenizer: AACTokenizer,
-        decoder_type: str = "aac",
+        # decoder_type: str = "aac",
         # Model architecture args
         in_features: int = 768,
         d_model: int = 256,
@@ -65,8 +68,12 @@ class TransDecoderModel(AACModel):
         super().__init__(tokenizer)
         self.projection: nn.Module = nn.Identity()
         self.decoder: AACTransformerDecoder = None  # type: ignore
+        # self.decoder_type = decoder_type
+        # Add attention mechanism
+        self.attention = nn.MultiheadAttention(embed_dim=4371, num_heads=3)
+        # Add linear layer to project logits to the correct dimension
+        # self.linear_proj = nn.Linear(in_features, d_model)
         self.save_hyperparameters(ignore=["tokenizer"])
-        self.decoder_type = decoder_type
 
     def is_built(self) -> bool:
         return self.decoder is not None
@@ -95,16 +102,16 @@ class TransDecoderModel(AACModel):
         )
 
         # Original code
-        # decoder = AACTransformerDecoder(
-        #     vocab_size=self.tokenizer.get_vocab_size(),
-        #     pad_id=self.tokenizer.pad_token_id,
-        #     d_model=self.hparams["d_model"],
-        # )
-        decoder = RNNDecoder(
+        decoder = AACTransformerDecoder(
             vocab_size=self.tokenizer.get_vocab_size(),
+            pad_id=self.tokenizer.pad_token_id,
             d_model=self.hparams["d_model"],
-            num_layers=6,
         )
+        # decoder = RNNDecoder(
+        #     vocab_size=self.tokenizer.get_vocab_size(),
+        #     d_model=self.hparams["d_model"],
+        #     num_layers=6,
+        # )
         # Alternative code
         # if self.decoder_type == "aac":
         #     decoder = AACTransformerDecoder(
@@ -168,7 +175,7 @@ class TransDecoderModel(AACModel):
         captions_in = captions_in * lbd + captions_in[indexes] * (1.0 - lbd)
 
         # new
-        captions_in = captions_in.long()
+        # captions_in = captions_in.long()
 
         encoded = self.encode_audio(audio, audio_shape)
         decoded = self.decode_audio(
@@ -299,7 +306,7 @@ class TransDecoderModel(AACModel):
 
     def input_emb_layer(self, ids: Tensor) -> Tensor:
         # New: Ensure ids is of type torch.LongTensor
-        ids = ids.long()
+        # ids = ids.long()
         return self.decoder.emb_layer(ids)
 
     def mix_audio(
@@ -368,6 +375,24 @@ class TransDecoderModel(AACModel):
                 }
                 kwargs = common_args | forcing_args | method_overrides
                 logits = teacher_forcing(**kwargs)
+                # print(f"logits shape 1: {logits.shape}")
+                # Project logits to the correct dimension
+                # logits = self.linear_proj(logits)
+                # print(f"logits shape 2: {logits.shape}")
+                # Apply attention mechanism
+                # logits, _ = self.attention(logits, logits, logits)
+                logits_permuted = logits.permute(
+                    2, 0, 1
+                )  # [batch_size, embed_dim, seq_len] -> [seq_len, batch_size, embed_dim]
+                # print(f"logits_permuted shape 2: {logits_permuted.shape}")
+                attended_output, _ = self.attention(
+                    logits_permuted, logits_permuted, logits_permuted
+                )
+                logits_attended = attended_output.permute(
+                    1, 2, 0
+                )  # [seq_len, batch_size, embed_dim] -> [batch_size, embed_dim, seq_len]
+                # print(f"logits shape 3: {logits.shape}")
+                logits = logits + logits_attended
                 outs = {"logits": logits}
 
             case "greedy":
@@ -381,6 +406,18 @@ class TransDecoderModel(AACModel):
                 }
                 kwargs = common_args | greedy_args | method_overrides
                 logits = greedy_search(**kwargs)
+                # Project logits to the correct dimension
+                # logits = self.linear_proj(logits)
+                # Apply attention mechanism
+                # logits, _ = self.attention(logits, logits, logits)
+                logits_permuted = logits.permute(2, 0, 1)
+                # print(f"logits_permuted shape 2: {logits_permuted.shape}")
+                attended_output, _ = self.attention(
+                    logits_permuted, logits_permuted, logits_permuted
+                )
+                logits_attended = attended_output.permute(1, 2, 0)
+                # print(f"logits shape 3: {logits.shape}")
+                logits = logits + logits_attended
                 outs = {"logits": logits}
 
             case "generate":

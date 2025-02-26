@@ -36,7 +36,7 @@ class Evaluator(Callback):
         submission_fname: str | Path = Path(
             "dcase", "labbe_irit_task6_submission_1_{dataset_name}.csv"
         ),
-        decoder_type: str = "aac",  # Add decoder_type argument
+        # decoder_type: str = "aac",  # Add decoder_type argument
     ) -> None:
         """Evaluator callback to save results and outputs.
 
@@ -64,7 +64,7 @@ class Evaluator(Callback):
         self.outputs_fname = outputs_fname
         self.scores_fname = scores_fname
         self.submission_fname = submission_fname
-        self.decoder_type = decoder_type  # Store the decoder_type
+        # self.decoder_type = decoder_type  # Store the decoder_type
 
         self.metrics = {
             "val": Evaluate(metrics=val_metrics),

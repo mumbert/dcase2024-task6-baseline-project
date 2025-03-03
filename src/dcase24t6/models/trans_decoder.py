@@ -34,6 +34,13 @@ from dcase24t6.tokenization.aac_tokenizer import AACTokenizer
 
 ModelOutput = dict[str, Tensor]
 
+# import io
+
+import matplotlib.pylab as plt
+import seaborn as sns
+
+# import tensorflow as tf
+
 
 class AudioEncoding(TypedDict):
     frame_embs: Tensor
@@ -68,9 +75,10 @@ class TransDecoderModel(AACModel):
         super().__init__(tokenizer)
         self.projection: nn.Module = nn.Identity()
         self.decoder: AACTransformerDecoder = None  # type: ignore
+        self.validation_iteration = 0
         # self.decoder_type = decoder_type
         # Add attention mechanism
-        self.attention = nn.MultiheadAttention(embed_dim=4371, num_heads=3)
+        # self.attention = nn.MultiheadAttention(embed_dim=4371, num_heads=3)
         # Add linear layer to project logits to the correct dimension
         # self.linear_proj = nn.Linear(in_features, d_model)
         self.save_hyperparameters(ignore=["tokenizer"])
@@ -192,6 +200,7 @@ class TransDecoderModel(AACModel):
         return loss
 
     def validation_step(self, batch: ValBatch) -> dict[str, Tensor]:
+        self.validation_iteration += 1
         audio = batch["frame_embs"]
         audio_shape = batch["frame_embs_shape"]
         mult_captions = batch["mult_captions"]
@@ -228,7 +237,98 @@ class TransDecoderModel(AACModel):
         outputs = {
             "val/loss": losses,
         } | decoded
+
+        # print(f"decoded: {decoded}")
+        # print(f"decoded['candidate']: {decoded['candidate']}")
+
+        # print("Executing validation_step")
+        # print(f"fname: {batch['fname'][0]}")
+        # for the attention maps only
+        tensorboard = self.logger.experiment
+        max_samples = 1
+        for sample_id in range(max_samples):
+            encoded_i = {}
+            for k in encoded.keys():
+                encoded_i[k] = encoded[k][sample_id : sample_id + 1, :]
+            captions_in_i = mult_captions_in[sample_id : sample_id + 1, i]
+            decoded_i = self.decode_audio(encoded_i, captions=captions_in_i)
+            decoded_generate = self.decode_audio(encoded_i, method="generate")
+            for j, l in enumerate(self.decoder.layers):
+                self.plot_attention(
+                    attention=l.attn_weights.mean(dim=0),
+                    title=f"layer {j}",
+                    xtitle=decoded_generate["candidates"][0],
+                )
+                tensorboard.add_figure(
+                    f"validation_{batch['fname'][sample_id].replace(' ', '_')}/attn_weights_l{j}",
+                    plt.gcf(),
+                    global_step=self.trainer.current_epoch,
+                )
+
+        # NEW
+        # https://pytorch-lightning.readthedocs.io/en/0.10.0/logging.html#manual-logging
+        # https://github.com/Lightning-AI/pytorch-lightning/issues/3697#issuecomment-703910904
+        # Images-->https://stackoverflow.com/questions/65498782/how-to-dump-confusion-matrix-using-tensorboard-logger-in-pytorch-lightning
+        # https://stackoverflow.com/a/66537286
+        # https://stackoverflow.com/a/52467925
+        # https://stackoverflow.com/questions/51496619/tensorboard-how-to-write-images-to-get-a-steps-slider
+
+        # #### tensorboard = self.logger.experiment
+        # #### for j, l in enumerate(self.decoder.layers):
+        # print(l.attn_weights.mean(dim=0))
+        # tensorboard.add_embedding(l.attn_weights.mean(dim=0), metadata = "validation/attn_weights")
+        # #####self.plot_attention(attention = l.attn_weights.mean(dim=0), title = f"attn_weights layer {j}")
+        # ---
+        # image = io.BytesIO()
+        # plt.savefig(image, format='png')
+        # image = tf.summary.image(encoded_image_string=image.getvalue(),
+        #                          height=10,
+        #                          width=10)
+        # summary = tf.summary(value=[tf.Summary.Value(tag=f"validation/attn_weights_l{i}", image=image)])
+        # tensorboard.add_summary(summary, global_step=self.trainer.current_epoch)
+        # ---
+        # #####tensorboard.add_figure(f"validation/attn_weights_l{j}", plt.gcf(), global_step = self.trainer.current_epoch)
+        # tensorboard.add_figure(f"validation/attn_weights", plt.gcf())
+        # ---
+        # self.log("validation/attn_weights", l.attn_weights.mean(dim=0))
+
+        # print(l.attn_weights)
+        # attention_maps.append(l.attn_weights)
+        # print(l.attn_weights.shape)
+        # attn_weights = self.decoder.get_attention_maps(x = encoded)
+        # self.log("validation/attn_weights", attn_weights)
+
         return outputs
+
+    # def plot_attention(self, attention, queries, keys, xtitle="Keys", ytitle="Queries"):
+    def plot_attention(self, attention, title="", xtitle="Keys", ytitle="Queries"):
+        """Plots the attention map
+
+        Args:
+            att (torch.FloatTensor): Attention map (T_q x T_k)
+            queries (List[str]): Query Tensor
+            keys (List[str]): Key Tensor
+        """
+
+        # sns.set(rc={'figure.figsize':(12, 8)})
+        plt.figure(figsize=(16, 16))
+        ax = sns.heatmap(attention.detach().cpu(), cmap="coolwarm")
+        # linewidth=0.5,
+        # xticklabels=keys,
+        # yticklabels=queries,
+
+        out, inds = torch.max(attention, dim=1)
+        out_out, inds_inds = torch.max(out, dim=0)
+        # title += f"max at {out_out:.4f} at frame {inds[inds_inds]} * 320/1000 = {inds[inds_inds]*320/1000} secs"
+        title += f" (token {inds_inds} in frame {inds[inds_inds]}  = {inds[inds_inds]*320/1000:.4f} secs)"
+
+        firstpart, secondpart = xtitle[: len(xtitle) // 2], xtitle[len(xtitle) // 2 :]
+        xtitle = f"{firstpart}\n{secondpart}"
+
+        ax.set_title(title)
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
+        ax.set_xlabel(xtitle)
+        ax.set_ylabel(ytitle)
 
     def test_step(self, batch: TestBatch) -> dict[str, Any]:
         audio = batch["frame_embs"]
@@ -381,18 +481,18 @@ class TransDecoderModel(AACModel):
                 # print(f"logits shape 2: {logits.shape}")
                 # Apply attention mechanism
                 # logits, _ = self.attention(logits, logits, logits)
-                logits_permuted = logits.permute(
-                    2, 0, 1
-                )  # [batch_size, embed_dim, seq_len] -> [seq_len, batch_size, embed_dim]
-                # print(f"logits_permuted shape 2: {logits_permuted.shape}")
-                attended_output, _ = self.attention(
-                    logits_permuted, logits_permuted, logits_permuted
-                )
-                logits_attended = attended_output.permute(
-                    1, 2, 0
-                )  # [seq_len, batch_size, embed_dim] -> [batch_size, embed_dim, seq_len]
-                # print(f"logits shape 3: {logits.shape}")
-                logits = logits + logits_attended
+                # --------------
+                # logits_permuted = logits.permute(
+                #     2, 0, 1
+                # )  # [batch_size, embed_dim, seq_len] -> [seq_len, batch_size, embed_dim]
+                # attended_output, _ = self.attention(
+                #     logits_permuted, logits_permuted, logits_permuted
+                # )
+                # logits_attended = attended_output.permute(
+                #     1, 2, 0
+                # )  # [seq_len, batch_size, embed_dim] -> [batch_size, embed_dim, seq_len]
+                # logits = logits + logits_attended
+                # --------------
                 outs = {"logits": logits}
 
             case "greedy":
@@ -410,14 +510,14 @@ class TransDecoderModel(AACModel):
                 # logits = self.linear_proj(logits)
                 # Apply attention mechanism
                 # logits, _ = self.attention(logits, logits, logits)
-                logits_permuted = logits.permute(2, 0, 1)
-                # print(f"logits_permuted shape 2: {logits_permuted.shape}")
-                attended_output, _ = self.attention(
-                    logits_permuted, logits_permuted, logits_permuted
-                )
-                logits_attended = attended_output.permute(1, 2, 0)
-                # print(f"logits shape 3: {logits.shape}")
-                logits = logits + logits_attended
+                # --------------
+                # logits_permuted = logits.permute(2, 0, 1)
+                # attended_output, _ = self.attention(
+                #     logits_permuted, logits_permuted, logits_permuted
+                # )
+                # logits_attended = attended_output.permute(1, 2, 0)
+                # logits = logits + logits_attended
+                # --------------
                 outs = {"logits": logits}
 
             case "generate":

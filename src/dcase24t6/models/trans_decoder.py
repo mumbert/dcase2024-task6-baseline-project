@@ -542,17 +542,45 @@ class TransDecoderModel(AACModel):
                     preds: Tensor = outs[key]
                     if preds.ndim == 2:
                         cands = self.tokenizer.decode_batch(preds.tolist())
+                        cands_list = [
+                            [
+                                self.tokenizer.decode(
+                                    [token], skip_special_tokens=False
+                                )
+                                for token in seq
+                            ]
+                            for seq in preds.tolist()
+                        ]
                     elif preds.ndim == 3:
                         cands = [
                             self.tokenizer.decode_batch(value_i)
                             for value_i in preds.tolist()
                         ]
+                        cands_list = [
+                            self.tokenizer.decode_batch(
+                                value_i, skip_special_tokens=False
+                            )
+                            for value_i in preds.tolist()
+                        ]
+                    # if preds.ndim == 2:
+                    #     cands = self.tokenizer.decode_batch(preds.tolist())
+                    #     cands_list = [[self.tokenizer.decode([token], skip_special_tokens=False) for token in seq] for seq in preds.tolist()]
+                    # elif preds.ndim == 3:
+                    #     cands = [
+                    #         self.tokenizer.decode_batch(value_i)
+                    #         for value_i in preds.tolist()
+                    #     ]
+                    #     cands_list = [
+                    #             self.tokenizer.decode_batch(value_i, skip_special_tokens=False)
+                    #             for value_i in preds.tolist()
+                    #     ]
                     else:
                         raise ValueError(
                             f"Invalid shape {preds.ndim=}. (expected one of {(2, 3)})"
                         )
                     new_key = key.replace("prediction", "candidate")
                     outs[new_key] = cands
+                    outs["cands_list"] = cands_list
 
             case method:
                 DECODE_METHODS = ("forcing", "greedy", "generate", "auto")

@@ -37,9 +37,29 @@ ModelOutput = dict[str, Tensor]
 # import io
 
 import matplotlib.pylab as plt
+import numpy as np
 import seaborn as sns
 
 # import tensorflow as tf
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
+
+
+def add_time_stamps_to_tags(
+    words: list = [], time_stamps: list = [], filter_tags: list = ["NOUN", "VERB"]
+):
+
+    processed = []
+
+    for i, word in enumerate(words):
+        doc = nlp(word)
+        if doc[0].pos_ in filter_tags:  # pos = (doc[0].text, doc[0].pos_)
+            processed.append(f"{doc[0].text} ({time_stamps[i]})")
+        else:
+            processed.append(doc[0].text)
+
+    return " ".join(processed)
 
 
 class AudioEncoding(TypedDict):
@@ -253,18 +273,40 @@ class TransDecoderModel(AACModel):
             captions_in_i = mult_captions_in[sample_id : sample_id + 1, i]
             decoded_i = self.decode_audio(encoded_i, captions=captions_in_i)
             decoded_generate = self.decode_audio(encoded_i, method="generate")
+            all_attn_weights = []
             for j, l in enumerate(self.decoder.layers):
+                all_attn_weights.append(l.attn_weights.mean(dim=0))
                 self.plot_attention(
                     attention=l.attn_weights.mean(dim=0),
                     title=f"layer {j}",
                     xtitle=decoded_generate["candidates"][0],
+                    cands_list=decoded_generate["candidates_cands_list"][0][0],
                 )
                 tensorboard.add_figure(
                     f"validation_{batch['fname'][sample_id].replace(' ', '_')}/attn_weights_l{j}",
                     plt.gcf(),
                     global_step=self.trainer.current_epoch,
                 )
-
+            all_attn_weights_mean = torch.stack(all_attn_weights, dim=0).mean(dim=0)
+            # if all_attn_weights_mean.shape[0] != len(
+            #     decoded_generate["candidates_cands_list"][0]
+            # ):
+            #     stop = 1
+            # if all_attn_weights_mean.shape[0] != len(
+            #     decoded_generate["candidates"][0].split(" ")
+            # ):
+            #     stop = 1
+            self.plot_attention(
+                attention=all_attn_weights_mean,
+                title="all layers mean",
+                xtitle=decoded_generate["candidates"][0],
+                cands_list=decoded_generate["candidates_cands_list"][0][0],
+            )
+            tensorboard.add_figure(
+                f"validation_{batch['fname'][sample_id].replace(' ', '_')}/attn_weights_all_layers_mean",
+                plt.gcf(),
+                global_step=self.trainer.current_epoch,
+            )
         # NEW
         # https://pytorch-lightning.readthedocs.io/en/0.10.0/logging.html#manual-logging
         # https://github.com/Lightning-AI/pytorch-lightning/issues/3697#issuecomment-703910904
@@ -301,7 +343,9 @@ class TransDecoderModel(AACModel):
         return outputs
 
     # def plot_attention(self, attention, queries, keys, xtitle="Keys", ytitle="Queries"):
-    def plot_attention(self, attention, title="", xtitle="Keys", ytitle="Queries"):
+    def plot_attention(
+        self, attention, title="", xtitle="Keys", ytitle="Queries", cands_list=[]
+    ):
         """Plots the attention map
 
         Args:
@@ -323,7 +367,18 @@ class TransDecoderModel(AACModel):
         title += f" (token {inds_inds} in frame {inds[inds_inds]}  = {inds[inds_inds]*320/1000:.4f} secs)"
 
         firstpart, secondpart = xtitle[: len(xtitle) // 2], xtitle[len(xtitle) // 2 :]
-        xtitle = f"{firstpart}\n{secondpart}"
+        arr = np.array(inds.tolist()) * 320 / 1000
+        subtitle = (
+            str(len(arr)) + " time stamps : " + ", ".join([str(i) for i in list(arr)])
+        )
+        subtitle2 = add_time_stamps_to_tags(words=cands_list, time_stamps=list(arr))
+        sub_firstpart, sub_secondpart = (
+            subtitle2[: len(subtitle2) // 2],
+            subtitle2[len(subtitle2) // 2 :],
+        )
+        xtitle = (
+            f"{firstpart}\n{secondpart}\n{subtitle}\n{sub_firstpart}\n{sub_secondpart}"
+        )
 
         ax.set_title(title)
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
@@ -557,11 +612,23 @@ class TransDecoderModel(AACModel):
                             for value_i in preds.tolist()
                         ]
                         cands_list = [
-                            self.tokenizer.decode_batch(
-                                value_i, skip_special_tokens=False
-                            )
-                            for value_i in preds.tolist()
+                            [
+                                [
+                                    self.tokenizer.decode(
+                                        [token], skip_special_tokens=False
+                                    )
+                                    for token in seq
+                                ]
+                                for seq in seq_list
+                            ]
+                            for seq_list in preds.tolist()
                         ]
+                        # cands_list = [
+                        #     self.tokenizer.decode_batch(
+                        #         value_i, skip_special_tokens=False
+                        #     )
+                        #     for value_i in preds.tolist()
+                        # ]
                     # if preds.ndim == 2:
                     #     cands = self.tokenizer.decode_batch(preds.tolist())
                     #     cands_list = [[self.tokenizer.decode([token], skip_special_tokens=False) for token in seq] for seq in preds.tolist()]
@@ -580,7 +647,7 @@ class TransDecoderModel(AACModel):
                         )
                     new_key = key.replace("prediction", "candidate")
                     outs[new_key] = cands
-                    outs["cands_list"] = cands_list
+                    outs[f"{new_key}_cands_list"] = cands_list
 
             case method:
                 DECODE_METHODS = ("forcing", "greedy", "generate", "auto")

@@ -280,7 +280,7 @@ class TransDecoderModel(AACModel):
                     attention=l.attn_weights.mean(dim=0),
                     title=f"layer {j}",
                     xtitle=decoded_generate["candidates"][0],
-                    cands_list=decoded_generate["candidates_cands_list"][0][0],
+                    cands_list=decoded_generate["candidates_cands_list"][0],
                 )
                 tensorboard.add_figure(
                     f"validation_{batch['fname'][sample_id].replace(' ', '_')}/attn_weights_l{j}",
@@ -300,7 +300,7 @@ class TransDecoderModel(AACModel):
                 attention=all_attn_weights_mean,
                 title="all layers mean",
                 xtitle=decoded_generate["candidates"][0],
-                cands_list=decoded_generate["candidates_cands_list"][0][0],
+                cands_list=decoded_generate["candidates_cands_list"][0],
             )
             tensorboard.add_figure(
                 f"validation_{batch['fname'][sample_id].replace(' ', '_')}/attn_weights_all_layers_mean",
@@ -344,7 +344,7 @@ class TransDecoderModel(AACModel):
 
     # def plot_attention(self, attention, queries, keys, xtitle="Keys", ytitle="Queries"):
     def plot_attention(
-        self, attention, title="", xtitle="Keys", ytitle="Queries", cands_list=[]
+        self, attention, title="", xtitle="Keys", ytitle="Words", cands_list=[]
     ):
         """Plots the attention map
 
@@ -356,7 +356,9 @@ class TransDecoderModel(AACModel):
 
         # sns.set(rc={'figure.figsize':(12, 8)})
         plt.figure(figsize=(16, 16))
-        ax = sns.heatmap(attention.detach().cpu(), cmap="coolwarm")
+        ax = sns.heatmap(
+            attention.detach().cpu(), cmap="coolwarm", yticklabels=cands_list
+        )
         # linewidth=0.5,
         # xticklabels=keys,
         # yticklabels=queries,

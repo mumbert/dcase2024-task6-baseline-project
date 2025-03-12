@@ -37,6 +37,7 @@ class ResampleMeanCNext(nn.Module):
         keep_batch: bool = False,
     ) -> None:
         device = get_device(device)
+        torch.multiprocessing.set_start_method('spawn')
 
         convnext = convnext_tiny(
             pretrained=False,
